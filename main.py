@@ -81,4 +81,6 @@ scroll_fav = tk.Scrollbar(frame_favorite, orient="vertical", command=lista_vizua
 scroll_fav.grid(row=0, column=1, sticky="ns")
 lista_vizuala_favorite.config(yscrollcommand=scroll_fav.set)
 
-fereastra.mainloop()
+
+
+fereastra
