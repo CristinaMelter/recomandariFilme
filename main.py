@@ -83,4 +83,4 @@ lista_vizuala_favorite.config(yscrollcommand=scroll_fav.set)
 
 
 
-fereastra modificare
+fereastra modificare 3333
