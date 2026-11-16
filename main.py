@@ -80,7 +80,4 @@ lista_vizuala_favorite.grid(row=0, column=0, sticky="nsew")
 scroll_fav = tk.Scrollbar(frame_favorite, orient="vertical", command=lista_vizuala_favorite.yview)
 scroll_fav.grid(row=0, column=1, sticky="ns")
 lista_vizuala_favorite.config(yscrollcommand=scroll_fav.set)
-
-
-
-fereastra modificare 3333
+sdgfhjbjn,mk.lkj,mbnv
