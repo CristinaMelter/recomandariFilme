@@ -85,21 +85,19 @@ def get_user_preferences(username):
         return users[username].get("favorites", []), users[username].get("unfavorites", [])
     return [], []
 
-def get_recommendations(target_username):
+def get_recommendations_and_users(target_username):
     users = load_users()
     movies = load_movies()
     
     if target_username not in users:
-        return []
+        return [], []
         
     target_data = users[target_username]
     target_favs = set(target_data.get("favorites", []))
     target_unfavs = set(target_data.get("unfavorites", []))
     
-    if not target_favs and not target_unfavs:
-        return []
-        
     movie_ids = [m["id"] for m in movies]
+    movie_dict = {m["id"]: m["title"] for m in movies}
     
     def build_vector(username):
         vec = []
@@ -125,40 +123,52 @@ def get_recommendations(target_username):
         return dot_product / (norm1 * norm2)
 
     similarities = {}
+    other_users_info = []
+    
     for user, data in users.items():
         if user == target_username:
             continue
+            
         user_vec = build_vector(user)
         sim = cosine_similarity(target_vec, user_vec)
+        
         if sim > 0:
             similarities[user] = sim
+            
+        fav_titles = [movie_dict[mid] for mid in data.get("favorites", []) if mid in movie_dict]
+        
+        other_users_info.append({
+            "username": user,
+            "similarity": round(sim * 100, 2),
+            "favorites": fav_titles
+        })
 
-    if not similarities:
-        return []
+    other_users_info.sort(key=lambda x: x["similarity"], reverse=True)
 
     recommendations_scores = []
-    for mid in movie_ids:
-        if mid in target_favs or mid in target_unfavs:
-            continue
-            
-        score_numerator = 0.0
-        score_denominator = 0.0
-        
-        for user, sim in similarities.items():
-            u_favs = set(users[user].get("favorites", []))
-            u_unfavs = set(users[user].get("unfavorites", []))
-            
-            if mid in u_favs:
-                score_numerator += sim * 1
-                score_denominator += sim
-            elif mid in u_unfavs:
-                score_numerator += sim * (-1)
-                score_denominator += sim
+    if similarities and (target_favs or target_unfavs):
+        for mid in movie_ids:
+            if mid in target_favs or mid in target_unfavs:
+                continue
                 
-        if score_denominator > 0 and score_numerator > 0:
-            predicted_score = score_numerator / score_denominator
-            recommendations_scores.append((mid, predicted_score))
+            score_numerator = 0.0
+            score_denominator = 0.0
             
+            for user, sim in similarities.items():
+                u_favs = set(users[user].get("favorites", []))
+                u_unfavs = set(users[user].get("unfavorites", []))
+                
+                if mid in u_favs:
+                    score_numerator += sim * 1
+                    score_denominator += sim
+                elif mid in u_unfavs:
+                    score_numerator += sim * (-1)
+                    score_denominator += sim
+                    
+            if score_denominator > 0 and score_numerator > 0:
+                predicted_score = score_numerator / score_denominator
+                recommendations_scores.append((mid, predicted_score))
+                
     recommendations_scores.sort(key=lambda x: x[1], reverse=True)
     
     recommended_movies = []
@@ -170,17 +180,18 @@ def get_recommendations(target_username):
                 "score": round(score * 100, 2)
             })
             
-    return recommended_movies
+    return recommended_movies, other_users_info
 
 class MovieApp(QWidget):
-    def _init_(self):
-        super()._init_()
+
+    def __init__(self):
+        super().__init__()
         self.current_user = None
         self.initUI()
-        
+
     def initUI(self):
         self.setWindowTitle("Recomandări Filme")
-        self.resize(700, 800)
+        self.resize(750, 850)
         self.setStyleSheet("background-color: #1e1e2e; color: #cdd6f4; font-family: Arial;")
         
         self.layout = QVBoxLayout()
@@ -351,9 +362,15 @@ class MovieApp(QWidget):
             if widget_to_remove is not None:
                 widget_to_remove.setParent(None)
                 
-        recs = get_recommendations(self.current_user)
+        recs, other_users = get_recommendations_and_users(self.current_user)
         favs, unfavs = get_user_preferences(self.current_user)
         
+        # --- SECȚIUNEA 1: FILME RECOMANDATE ---
+        title_recs = QLabel("🍿 Filme Recomandate")
+        title_recs.setFont(QFont("Arial", 16, QFont.Bold))
+        self.recs_layout.addWidget(title_recs)
+        self.recs_layout.addSpacing(10)
+
         if not recs:
             no_rec_lbl = QLabel("Nu avem suficiente date pentru a genera recomandări.\nEvaluează mai multe filme sau așteaptă ca alți utilizatori să își salveze preferințele.")
             no_rec_lbl.setStyleSheet("color: #a6adc8; font-size: 14px;")
@@ -366,11 +383,70 @@ class MovieApp(QWidget):
                 card = self.create_movie_card(movie, favs, unfavs, score)
                 self.recs_layout.addWidget(card)
                 
+        self.recs_layout.addSpacing(20)
+        
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        line.setStyleSheet("background-color: #45475a;")
+        self.recs_layout.addWidget(line)
+        self.recs_layout.addSpacing(20)
+
+        # --- SECȚIUNEA 2: PREFERINȚELE ALTOR UTILIZATORI ---
+        title_users = QLabel("👥 Preferințele altor utilizatori")
+        title_users.setFont(QFont("Arial", 16, QFont.Bold))
+        self.recs_layout.addWidget(title_users)
+        self.recs_layout.addSpacing(10)
+
+        if not other_users:
+            no_users_lbl = QLabel("Nu există alți utilizatori înregistrați încă.")
+            no_users_lbl.setStyleSheet("color: #a6adc8; font-size: 14px;")
+            no_users_lbl.setAlignment(Qt.AlignCenter)
+            self.recs_layout.addWidget(no_users_lbl)
+        else:
+            for u_data in other_users:
+                user_card = QFrame()
+                
+                # Evidențiere vizuală pentru utilizatorii cu similitudine mare (>50%)
+                if u_data["similarity"] > 50:
+                    user_card.setStyleSheet("background-color: #313244; border: 1px solid #a6e3a1; border-radius: 10px; margin-bottom: 10px;")
+                else:
+                    user_card.setStyleSheet("background-color: #313244; border-radius: 10px; margin-bottom: 10px;")
+                    
+                user_layout = QVBoxLayout()
+                user_layout.setContentsMargins(15, 15, 15, 15)
+                
+                name_lbl = QLabel(f"Utilizator: {u_data['username']}")
+                name_lbl.setFont(QFont("Arial", 14, QFont.Bold))
+                
+                sim_text = f"Similitudine: {u_data['similarity']}%"
+                sim_lbl = QLabel(sim_text)
+                sim_lbl.setFont(QFont("Arial", 12))
+                
+                if u_data["similarity"] > 50:
+                    sim_lbl.setStyleSheet("color: #a6e3a1; font-weight: bold;")
+                elif u_data["similarity"] > 0:
+                    sim_lbl.setStyleSheet("color: #f9e2af;")
+                else:
+                    sim_lbl.setStyleSheet("color: #f38ba8;")
+                
+                fav_movies_text = ", ".join(u_data["favorites"]) if u_data["favorites"] else "Niciun film adăugat la favorite"
+                fav_lbl = QLabel(f"Filme favorite: {fav_movies_text}")
+                fav_lbl.setStyleSheet("color: #a6adc8; font-size: 13px;")
+                fav_lbl.setWordWrap(True)
+                
+                user_layout.addWidget(name_lbl)
+                user_layout.addWidget(sim_lbl)
+                user_layout.addWidget(fav_lbl)
+                
+                user_card.setLayout(user_layout)
+                self.recs_layout.addWidget(user_card)
+
         self.recs_layout.addStretch()
 
     def create_movie_card(self, movie, favs, unfavs, score=None):
         card = QFrame()
-        card.setStyleSheet("background-color: #313244; border-radius: 10px; margin-bottom: 10px;")
+        card.setStyleSheet("background-color: #313244; border-radius: 10px; margin-bottom: 10px; border: none;")
         card_layout = QVBoxLayout()
         card_layout.setContentsMargins(15, 15, 15, 15)
         
@@ -419,7 +495,7 @@ class MovieApp(QWidget):
         add_preference(self.current_user, movie_id, status)
         self.load_ui_data()
 
-if _name_ == '_main_':
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     ex = MovieApp()
     ex.show()
